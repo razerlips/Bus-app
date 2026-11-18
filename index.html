@@ -65,7 +65,12 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .trip .go.done{background:var(--surface);color:var(--accent)}
 .foot{display:flex;flex-direction:column;gap:10px}
 .foot label{display:flex;align-items:center;gap:8px;font-size:14px}
-.foot select{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px}
+.foot select{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px;min-width:0;max-width:100%}
+.foot label{flex-wrap:wrap}
+.setup{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px}
+.setup summary{cursor:pointer;font-weight:700;color:var(--accent)}
+.setup ol{margin:10px 0;padding-left:1.4em;display:flex;flex-direction:column;gap:8px}
+.setup code{font-family:var(--f-mono);font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 5px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;max-width:calc(100% - 32px);text-align:center}
 @media (prefers-reduced-motion:no-preference){.toast{transition:opacity .2s}}
 </style>
@@ -114,6 +119,22 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
   </section>
 
   <section class="foot">
+    <label for="mode">追加のしかた
+      <select id="mode">
+        <option value="ics">いつもの追加画面（デフォルトのカレンダー）</option>
+        <option value="sc">ショートカットで「移動」カレンダーへ</option>
+      </select>
+    </label>
+    <details class="setup" id="setup" hidden>
+      <summary>ショートカット「バス移動」の作り方（最初の1回だけ）</summary>
+      <ol>
+        <li>「ショートカット」アプリで <b>＋</b> → 名前を <code>バス移動</code> にする（この名前のとおりにしてください）</li>
+        <li><b>入力から辞書を取得</b> を追加（入力は「ショートカットの入力」）</li>
+        <li><b>辞書の値を取得</b> を3つ追加し、キーをそれぞれ <code>title</code>・<code>start</code>・<code>end</code> にする</li>
+        <li><b>新規イベントを追加</b> を追加。タイトル＝title の値、開始日＝start の値、終了日＝end の値、カレンダー＝<b>移動</b>。通知は「詳細を表示」で設定</li>
+      </ol>
+      <p class="muted">この方法では、通知はショートカット側の設定が使われます（下の「通知」は使われません）。</p>
+    </details>
     <label for="alarm">通知
       <select id="alarm">
         <option value="0">なし</option>
@@ -141,7 +162,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
   const pretty = n => n.replace("旅の駅鬼無里", "旅の駅 鬼無里");
 
   // ---- state (per device) ----
-  let st = { routes: [], cur: 0, alarm: 15 };
+  let st = { routes: [], cur: 0, alarm: 15, mode: "ics" };
   try { Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
   let day = new Date(); day.setHours(0, 0, 0, 0);
@@ -226,12 +247,12 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
           <span class="times">${t.dep}<span class="arr"> → ${t.arr}</span></span>
           <span class="meta">${pretty(r.from)} 発・約${dur}分${isNext ? '<span class="next">次の便</span>' : ""}</span>
         </div>
-        <button type="button" class="go${added.has(key) ? " done" : ""}" data-i="${i}">${added.has(key) ? "追加済み" : "カレンダーに追加"}</button>
+        <button type="button" class="go${added.has(key) ? " done" : ""}" data-i="${i}">${added.has(key) ? "追加済み" : st.mode === "sc" ? "移動に追加" : "カレンダーに追加"}</button>
       </li>`;
     }).join("");
   }
 
-  const render = () => { renderDays(); renderRoutes(); renderTrips(); $("alarm").value = String(st.alarm); };
+  const render = () => { renderDays(); renderRoutes(); renderTrips(); $("alarm").value = String(st.alarm); $("mode").value = st.mode; $("setup").hidden = st.mode !== "sc"; };
 
   // ---- editor ----
   const fill = (sel, v) => { sel.innerHTML = STOPS.map(s => `<option value="${s}">${pretty(s)}</option>`).join(""); sel.value = v; };
@@ -270,11 +291,25 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
     const [y, m, d] = e.target.value.split("-").map(Number); day = new Date(y, m - 1, d); render();
   });
   $("alarm").addEventListener("change", e => { st.alarm = Number(e.target.value); save(); });
+  $("mode").addEventListener("change", e => { st.mode = e.target.value; save(); render(); if (st.mode === "sc") $("setup").open = true; });
 
   // ---- add to calendar ----
   $("trips").addEventListener("click", e => {
     const b = e.target.closest(".go"); if (!b) return;
     const r = st.routes[st.cur], i = Number(b.dataset.i), t = trips(r)[i];
+    if (st.mode === "sc") {
+      // Hand the event to the user's "バス移動" shortcut, which adds it to the 移動 calendar, then come back here.
+      const iso = tm => { const [h, m] = tm.split(":").map(Number); return `${ymd(day)}T${pad(h)}:${pad(m)}:00+09:00`; };
+      const payload = JSON.stringify({ title: `🚌 ${t.dep} ${pretty(r.from)} → ${t.arr} ${pretty(r.to)}`, start: iso(t.dep), end: iso(t.arr) });
+      window.__lastPayload = payload;
+      const back = location.href.split("#")[0];
+      added.add(`${ymd(day)}|${st.cur}|${i}`);
+      renderTrips();
+      toast("ショートカットを開いて「移動」に追加します");
+      location.href = "shortcuts://x-callback-url/run-shortcut?name=" + encodeURIComponent("バス移動")
+        + "&input=text&text=" + encodeURIComponent(payload) + "&x-success=" + encodeURIComponent(back);
+      return;
+    }
     const ics = buildICS(r, t);
     window.__lastICS = ics;
     // iOS Safari blocks top-level data: URLs, so hand it a Blob with the calendar type instead.
