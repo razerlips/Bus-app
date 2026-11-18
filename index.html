@@ -138,10 +138,10 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
     </details>
     <label for="alarm">通知
       <select id="alarm">
-        <option value="0">なし</option>
+        <option value="0" selected>なし</option>
         <option value="5">5分前</option>
         <option value="10">10分前</option>
-        <option value="15" selected>15分前</option>
+        <option value="15">15分前</option>
         <option value="30">30分前</option>
       </select>
     </label>
@@ -163,7 +163,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
   const pretty = n => n.replace("旅の駅鬼無里", "旅の駅 鬼無里");
 
   // ---- state (per device) ----
-  let st = { routes: [], cur: 0, alarm: 15, mode: "ics" };
+  let st = { routes: [], cur: 0, alarm: 0, mode: "sc" };
   try { Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
   let day = new Date(); day.setHours(0, 0, 0, 0);
