@@ -89,7 +89,10 @@
   if (!st.curBy) st.curBy = {};
   if (st.curBy.aeon == null) st.curBy.aeon = st.aeonCur || 0;
   const routes = () => fixed() ? FIXED[st.line] : st.routes;
-  const curIdx = () => fixed() ? (st.curBy[st.line] || 0) : st.cur;
+  const curIdx = () => {
+    const n = routes().length, i = fixed() ? (st.curBy[st.line] || 0) : st.cur;
+    return Number.isInteger(i) && i >= 0 && i < n ? i : 0; // fall back to the first segment if the saved index is stale
+  };
   const setCur = i => { if (fixed()) st.curBy[st.line] = i; else st.cur = i; };
   const dirOf = r => STOPS.indexOf(r.from) < STOPS.indexOf(r.to) ? "down" : "up";
   const routeLabel = r => fixed() ? r.stop : dirOf(r) === "down" ? "鬼無里方面" : "長野方面";
