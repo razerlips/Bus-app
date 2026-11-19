@@ -1,9 +1,10 @@
 (async function () {
   const $ = id => document.getElementById(id);
   const KEY = "busapp-kinasa-v1";
-  const [KIN, AEON] = await Promise.all([
+  const [KIN, AEON, SUN] = await Promise.all([
     fetch("data/kinasa.json").then(r => r.json()),
     fetch("data/aeon.json").then(r => r.json()),
+    fetch("data/sunmarine.json").then(r => r.json()),
   ]);
   const STOPS = KIN.down.map(s => s[0]);
   const T = { down: Object.fromEntries(KIN.down), up: Object.fromEntries(KIN.up) };
@@ -11,11 +12,21 @@
   const LINES = {
     kinasa: { name: "鬼無里線", note: "時刻は長野市営バス鬼無里線の時刻表（2026年4月1日制定・素案）の通過予定時刻です。道路状況で遅れることがあります。" },
     aeon: { name: "イオンモール須坂", note: "発車時刻は長電バス路線82の時刻表（2025年9月26日〜・平日ダイヤ）です。時刻表に到着時刻はないので、到着は上の「到着までの時間」から計算した目安です。" },
+    sunmarine: { name: "サンマリーンクリニック", note: "時刻は日赤線ほかの時刻表（2025年12月6日改正・平日用）の通過予定時刻です。松岡南に止まる便だけを、路線をまとめて時刻順に並べています。" },
   };
-  const AEON_ROUTES = [AEON.out, AEON.back];
+  // Fixed-route lines: each route lists trips; arrival is either given or estimated from st.dur.
+  const toMin = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const sortTrips = list => list.slice().sort((x, y) => toMin(x.dep) - toMin(y.dep));
+  const FIXED = {
+    aeon: [AEON.out, AEON.back].map(r => ({ ...r, est: true, trips: r.weekday.map(s => {
+      const dep = s.match(/^\d{1,2}:\d{2}/)[0], mk = s.slice(dep.length);
+      return { dep, note: mk ? r.marks[mk] : "" };
+    }) })),
+    sunmarine: SUN.routes.map(r => ({ ...r, trips: sortTrips(r.trips).map(t => ({ ...t, note: t.line })) })),
+  };
 
   // ---- state (per device) ----
-  let st = { routes: [], cur: 0, alarm: 0, mode: "sc", line: "kinasa", aeonCur: 0, dur: 40 };
+  let st = { routes: [], cur: 0, alarm: 0, mode: "sc", line: "kinasa", aeonCur: 0, curBy: {}, dur: 40 };
   try { Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
   let day = new Date(); day.setHours(0, 0, 0, 0);
@@ -67,27 +78,28 @@
     const m = d.getMonth() + 1, dd = d.getDate();
     if (d.getDay() === 0 || d.getDay() === 6) return "土日";
     if (holidays(d.getFullYear()).has(`${m}-${dd}`)) return "祝日";
-    if (st.line === "aeon" && ((m === 8 && dd >= 13 && dd <= 16) || (m === 12 && dd >= 29) || (m === 1 && dd <= 3))) return "お盆・年末年始";
+    if (st.line !== "kinasa" && ((m === 8 && dd >= 13 && dd <= 16) || (m === 12 && dd >= 29) || (m === 1 && dd <= 3))) return "お盆・年末年始";
     return "";
   }
 
   // ---- routes & trips per line ----
   const isAeon = () => st.line === "aeon";
-  const routes = () => isAeon() ? AEON_ROUTES : st.routes;
-  const curIdx = () => isAeon() ? st.aeonCur : st.cur;
-  const setCur = i => { if (isAeon()) st.aeonCur = i; else st.cur = i; };
+  const fixed = () => st.line in FIXED;
+  if (!LINES[st.line]) st.line = "kinasa";
+  if (!st.curBy) st.curBy = {};
+  if (st.curBy.aeon == null) st.curBy.aeon = st.aeonCur || 0;
+  const routes = () => fixed() ? FIXED[st.line] : st.routes;
+  const curIdx = () => fixed() ? (st.curBy[st.line] || 0) : st.cur;
+  const setCur = i => { if (fixed()) st.curBy[st.line] = i; else st.cur = i; };
   const dirOf = r => STOPS.indexOf(r.from) < STOPS.indexOf(r.to) ? "down" : "up";
-  const routeLabel = r => isAeon() ? r.stop : dirOf(r) === "down" ? "鬼無里方面" : "長野方面";
+  const routeLabel = r => fixed() ? r.stop : dirOf(r) === "down" ? "鬼無里方面" : "長野方面";
   function trips(r) {
-    if (!isAeon()) { const d = dirOf(r); return T[d][r.from].map((t, i) => ({ dep: t, arr: T[d][r.to][i] })); }
+    if (!fixed()) { const d = dirOf(r); return T[d][r.from].map((t, i) => ({ dep: t, arr: T[d][r.to][i] })); }
     const dur = Math.max(5, Number(st.dur) || 40);
-    return r.weekday.map(s => {
-      const dep = s.match(/^\d{1,2}:\d{2}/)[0], mk = s.slice(dep.length);
-      return { dep, arr: hm(mins(dep) + dur), note: mk ? r.marks[mk] : "", est: true };
-    });
+    return r.trips.map(t => r.est ? { ...t, arr: hm(mins(t.dep) + dur), est: true } : t);
   }
-  const short = n => isAeon() ? n.replace("（東口）", "").replace("イオンモール須坂", "イオン須坂") : pretty(n);
-  const titleOf = (r, t) => `🚌 ${t.dep} ${pretty(r.from)} → ${t.arr} ${pretty(r.to)}`;
+  const short = n => fixed() ? n.replace("（東口）", "").replace("イオンモール須坂", "イオン須坂").replace("（善光寺口）", "") : pretty(n);
+  const titleOf = (r, t) => `🚌 ${t.dep} ${pretty(r.from)} → ${t.arr} ${pretty(r.to)}${t.line ? `（${t.line.split(" ")[0]}）` : ""}`;
 
   function buildICS(r, t) {
     const start = at(day, t.dep), end = at(day, t.arr);
@@ -99,7 +111,7 @@
       `DTSTART:${utc(start)}`, `DTEND:${utc(end)}`,
       `SUMMARY:${esc(titleOf(r, t))}`,
       `LOCATION:${esc(`${pretty(r.from)}（バス停）`)}`,
-      `DESCRIPTION:${esc(isAeon() ? `長電バス 路線82 ${r.stop}${t.note ? "・" + t.note : ""}（到着は目安）` : `長野市営バス 鬼無里線 ${routeLabel(r)}`)}`,
+      `DESCRIPTION:${esc(isAeon() ? `長電バス 路線82 ${r.stop}${t.note ? "・" + t.note : ""}（到着は目安）` : fixed() ? `${LINES[st.line].name}へ ${r.stop}${t.note ? "・" + t.note : ""}` : `長野市営バス 鬼無里線 ${routeLabel(r)}`)}`,
     ];
     if (st.alarm > 0) L.push("BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:バスの時間です", `TRIGGER:-PT${st.alarm}M`, "END:VALARM");
     L.push("END:VEVENT", "END:VCALENDAR");
@@ -118,7 +130,7 @@
     $("srcNote").textContent = LINES[st.line].note;
     $("durBox").hidden = !isAeon();
     $("dur").value = String(st.dur);
-    if (isAeon()) $("editor").hidden = true;
+    if (fixed()) $("editor").hidden = true;
   }
 
   function renderDays() {
@@ -135,8 +147,8 @@
     const box = $("routes");
     box.innerHTML = routes().map((r, i) =>
       `<button type="button" data-i="${i}" aria-pressed="${i === curIdx()}">${short(r.from)} → ${short(r.to)}</button>`
-    ).join("") + (isAeon() ? "" : `<button type="button" class="addr" id="openEditor">＋ 区間を登録</button>`);
-    $("del").hidden = isAeon() || !st.routes.length;
+    ).join("") + (fixed() ? "" : `<button type="button" class="addr" id="openEditor">＋ 区間を登録</button>`);
+    $("del").hidden = fixed() || !st.routes.length;
   }
 
   function renderTrips() {
@@ -155,7 +167,7 @@
       const key = `${st.line}|${ymd(day)}|${curIdx()}|${i}`;
       const meta = t.est
         ? `${pretty(r.from)} 発・到着は目安${t.note ? "・" + t.note : ""}`
-        : `${pretty(r.from)} 発・約${mins(t.arr) - mins(t.dep)}分`;
+        : `${pretty(r.from)} 発・約${mins(t.arr) - mins(t.dep)}分${t.note ? "・" + t.note : ""}`;
       return `<li class="trip${past ? " past" : ""}">
         <div class="t">
           <span class="times">${t.dep}<span class="arr"> → ${t.est ? "約" : ""}${t.arr}</span></span>
@@ -175,7 +187,7 @@
   $("lines").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
     st.line = b.dataset.l; save(); render();
-    if (!isAeon() && !st.routes.length) openEditor();
+    if (!fixed() && !st.routes.length) openEditor();
   });
   $("dur").addEventListener("change", e => {
     const v = Math.round(Number(e.target.value));
@@ -251,6 +263,6 @@
     toast("予定の画面が出たら「追加」をタップしてください");
   });
 
-  if (!isAeon() && !st.routes.length) openEditor();
+  if (!fixed() && !st.routes.length) openEditor();
   render();
 })();
