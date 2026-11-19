@@ -2,9 +2,9 @@
   const $ = id => document.getElementById(id);
   const KEY = "busapp-kinasa-v1";
   const [KIN, AEON, SUN] = await Promise.all([
-    fetch("data/kinasa.json").then(r => r.json()),
-    fetch("data/aeon.json").then(r => r.json()),
-    fetch("data/sunmarine.json").then(r => r.json()),
+    fetch(`data/kinasa.json?v=${window.APP_VERSION || ""}`).then(r => r.json()),
+    fetch(`data/aeon.json?v=${window.APP_VERSION || ""}`).then(r => r.json()),
+    fetch(`data/sunmarine.json?v=${window.APP_VERSION || ""}`).then(r => r.json()),
   ]);
   const STOPS = KIN.down.map(s => s[0]);
   const T = { down: Object.fromEntries(KIN.down), up: Object.fromEntries(KIN.up) };
