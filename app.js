@@ -12,7 +12,7 @@
   const LINES = {
     kinasa: { name: "鬼無里線", note: "時刻は長野市営バス鬼無里線の時刻表（2026年4月1日制定・素案）の通過予定時刻です。道路状況で遅れることがあります。" },
     aeon: { name: "イオンモール須坂", note: "発車時刻は長電バス路線82の時刻表（2025年9月26日〜・平日ダイヤ）です。時刻表に到着時刻はないので、到着は上の「到着までの時間」から計算した目安です。" },
-    sunmarine: { name: "サンマリーンクリニック", note: "時刻は日赤線ほかの時刻表（2025年12月6日改正・平日用）の通過予定時刻です。松岡南に止まる便だけを、路線をまとめて時刻順に並べています。" },
+    sunmarine: { name: "サンマリーンクリニック", note: "時刻は日赤線ほかの時刻表（2025年12月6日改正・平日用）の通過予定時刻です。長野駅と松岡南の両方に止まる便だけを、路線をまとめて時刻順に並べています。" },
   };
   // Fixed-route lines: each route lists trips; arrival is either given or estimated from st.dur.
   const toMin = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
