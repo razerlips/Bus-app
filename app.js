@@ -118,9 +118,14 @@
     return L.map(fold).join("\r\n") + "\r\n";
   }
 
-  function toast(msg) {
+  function toast(msg, undo) {
     const el = $("toast"); el.textContent = msg; el.hidden = false;
-    clearTimeout(toast.t); toast.t = setTimeout(() => { el.hidden = true; }, 4000);
+    if (undo) {
+      const b = document.createElement("button"); b.type = "button"; b.className = "undo"; b.textContent = "元に戻す";
+      b.addEventListener("click", () => { el.hidden = true; clearTimeout(toast.t); undo(); });
+      el.appendChild(b);
+    }
+    clearTimeout(toast.t); toast.t = setTimeout(() => { el.hidden = true; }, undo ? 6000 : 4000);
   }
 
   // ---- render ----
@@ -148,7 +153,6 @@
     box.innerHTML = routes().map((r, i) =>
       `<button type="button" data-i="${i}" aria-pressed="${i === curIdx()}">${short(r.from)} → ${short(r.to)}</button>`
     ).join("") + (fixed() ? "" : `<button type="button" class="addr" id="openEditor">＋ 区間を登録</button>`);
-    $("del").hidden = fixed() || !st.routes.length;
     $("sortHint").hidden = fixed() || st.routes.length < 2;
   }
 
@@ -206,37 +210,35 @@
     if (b.id === "openEditor") return openEditor();
     setCur(Number(b.dataset.i)); save(); render();
   });
-  // ---- long-press to reorder (鬼無里線の区間) ----
-  let hold = null, drag = null, justDragged = false;
+  // ---- 鬼無里線の区間: long-press to reorder, swipe left to delete ----
+  let touch = null, drag = null, justDragged = false;
   const box = $("routes");
   const chipsOf = () => [...box.querySelectorAll("button[data-i]")];
-  const contentX = x => x - box.getBoundingClientRect().left + box.scrollLeft;
-  function startDrag(chip, x) {
+  const suppressClick = () => { justDragged = true; setTimeout(() => { justDragged = false; }, 400); };
+  function startDrag(chip, x, y) {
     const chips = chipsOf();
-    drag = { from: Number(chip.dataset.i), to: Number(chip.dataset.i), chip, chips,
-      centers: chips.map(c => c.offsetLeft + c.offsetWidth / 2), width: chip.offsetWidth + 6, x0: contentX(x) };
+    drag = { from: Number(chip.dataset.i), to: Number(chip.dataset.i), chip, chips, x0: x, y0: y,
+      slots: chips.map(c => ({ x: c.offsetLeft, y: c.offsetTop, cx: c.offsetLeft + c.offsetWidth / 2, cy: c.offsetTop + c.offsetHeight / 2 })) };
     box.classList.add("sorting"); chip.classList.add("lifting");
     chip.style.transform = "scale(1.06)";
   }
-  function moveDrag(x) {
-    const r = box.getBoundingClientRect();
-    if (x < r.left + 32) box.scrollLeft -= 8; else if (x > r.right - 32) box.scrollLeft += 8;
-    const dx = contentX(x) - drag.x0, c = drag.centers[drag.from] + dx;
-    let to = drag.from;
-    drag.centers.forEach((cc, i) => { if (i > drag.from && c > cc) to = i; if (i < drag.from && c < cc && to === drag.from) to = i; });
+  function moveDrag(x, y) {
+    const dx = x - drag.x0, dy = y - drag.y0, me = drag.slots[drag.from];
+    const cx = me.cx + dx, cy = me.cy + dy;
+    let to = drag.from, best = Infinity;
+    drag.slots.forEach((s, i) => { const d = Math.hypot(s.cx - cx, s.cy - cy); if (d < best) { best = d; to = i; } });
     drag.to = to;
-    drag.chips.forEach((ch, i) => {
-      if (i === drag.from) { ch.style.transform = `translateX(${dx}px) scale(1.06)`; return; }
-      let s = 0;
-      if (drag.from < to && i > drag.from && i <= to) s = -drag.width;
-      if (drag.from > to && i >= to && i < drag.from) s = drag.width;
-      ch.style.transform = s ? `translateX(${s}px)` : "";
+    const order = drag.chips.map((_, i) => i); order.splice(drag.from, 1); order.splice(to, 0, drag.from);
+    order.forEach((orig, k) => {
+      const ch = drag.chips[orig];
+      if (orig === drag.from) { ch.style.transform = `translate(${dx}px, ${dy}px) scale(1.06)`; return; }
+      const s = drag.slots[k], o = drag.slots[orig];
+      ch.style.transform = (s.x !== o.x || s.y !== o.y) ? `translate(${s.x - o.x}px, ${s.y - o.y}px)` : "";
     });
   }
   function endDrag(commit) {
     const d = drag; drag = null; if (!d) return;
-    box.classList.remove("sorting");
-    justDragged = true; setTimeout(() => { justDragged = false; }, 400);
+    box.classList.remove("sorting"); suppressClick();
     if (commit && d.to !== d.from) {
       const sel = st.routes[st.cur];
       const [moved] = st.routes.splice(d.from, 1); st.routes.splice(d.to, 0, moved);
@@ -244,19 +246,51 @@
     }
     renderRoutes();
   }
+  function deleteRoute(i) {
+    const sel = st.routes[st.cur], removed = st.routes[i];
+    st.routes.splice(i, 1);
+    st.cur = Math.max(0, st.routes.indexOf(sel)); save(); render();
+    toast(`「${pretty(removed.from)} → ${pretty(removed.to)}」を削除しました`, () => {
+      st.routes.splice(Math.min(i, st.routes.length), 0, removed);
+      st.cur = st.routes.indexOf(sel) >= 0 ? st.routes.indexOf(sel) : st.routes.indexOf(removed); save(); render();
+    });
+  }
   box.addEventListener("touchstart", e => {
     if (fixed() || e.touches.length > 1) return;
     const chip = e.target.closest("button[data-i]"); if (!chip) return;
     const t = e.touches[0];
-    hold = { x: t.clientX, y: t.clientY, timer: setTimeout(() => { hold = null; startDrag(chip, t.clientX); }, 450) };
+    touch = { chip, x: t.clientX, y: t.clientY, swipe: false, dx: 0,
+      timer: setTimeout(() => { if (touch && !touch.swipe) { touch = null; startDrag(chip, t.clientX, t.clientY); } }, 450) };
   }, { passive: true });
   box.addEventListener("touchmove", e => {
     const t = e.touches[0];
-    if (drag) { e.preventDefault(); moveDrag(t.clientX); return; }
-    if (hold && Math.hypot(t.clientX - hold.x, t.clientY - hold.y) > 8) { clearTimeout(hold.timer); hold = null; }
+    if (drag) { e.preventDefault(); moveDrag(t.clientX, t.clientY); return; }
+    if (!touch) return;
+    const dx = t.clientX - touch.x, dy = t.clientY - touch.y;
+    if (!touch.swipe) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { clearTimeout(touch.timer); touch = null; return; } // vertical scroll
+      if (dx < -10 && Math.abs(dx) > Math.abs(dy)) { touch.swipe = true; clearTimeout(touch.timer); touch.chip.classList.add("swiping"); }
+      else return;
+    }
+    e.preventDefault();
+    touch.dx = Math.min(0, dx);
+    touch.chip.style.transform = `translateX(${touch.dx}px)`;
+    touch.chip.classList.toggle("will-delete", touch.dx < -70);
   }, { passive: false });
-  box.addEventListener("touchend", () => { if (hold) { clearTimeout(hold.timer); hold = null; } if (drag) endDrag(true); });
-  box.addEventListener("touchcancel", () => { if (hold) { clearTimeout(hold.timer); hold = null; } endDrag(false); });
+  box.addEventListener("touchend", () => {
+    if (drag) return endDrag(true);
+    if (!touch) return;
+    clearTimeout(touch.timer);
+    const t = touch; touch = null;
+    if (!t.swipe) return;
+    suppressClick();
+    if (t.dx < -70) { t.chip.style.transform = "translateX(-120%)"; t.chip.style.opacity = "0"; setTimeout(() => deleteRoute(Number(t.chip.dataset.i)), 160); }
+    else { t.chip.classList.remove("swiping", "will-delete"); t.chip.style.transform = ""; }
+  });
+  box.addEventListener("touchcancel", () => {
+    if (touch) { clearTimeout(touch.timer); touch.chip.classList.remove("swiping", "will-delete"); touch.chip.style.transform = ""; touch = null; }
+    endDrag(false);
+  });
   box.addEventListener("contextmenu", e => { if (!fixed()) e.preventDefault(); });
 
   $("swap").addEventListener("click", () => { const f = $("from").value; $("from").value = $("to").value; $("to").value = f; });
@@ -269,11 +303,6 @@
     if ($("ret").checked && has(to, from) < 0) st.routes.push({ from: to, to: from });
     st.cur = has(from, to); save();
     $("editor").hidden = true; render();
-  });
-  $("del").addEventListener("click", () => {
-    const b = $("del");
-    if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "もう一度タップで削除"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "この区間を削除"; }, 3000); return; }
-    st.routes.splice(st.cur, 1); st.cur = 0; b.dataset.armed = ""; b.textContent = "この区間を削除"; save(); render();
   });
 
   // ---- date & alarm ----
