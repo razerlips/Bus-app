@@ -187,7 +187,6 @@
   $("lines").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
     st.line = b.dataset.l; save(); render();
-    if (!fixed() && !st.routes.length) openEditor();
   });
   $("dur").addEventListener("change", e => {
     const v = Math.round(Number(e.target.value));
@@ -263,6 +262,5 @@
     toast("予定の画面が出たら「追加」をタップしてください");
   });
 
-  if (!fixed() && !st.routes.length) openEditor();
   render();
 })();
