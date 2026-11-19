@@ -151,7 +151,7 @@
   function renderRoutes() {
     const box = $("routes");
     box.innerHTML = routes().map((r, i) =>
-      `<button type="button" data-i="${i}" aria-pressed="${i === curIdx()}">${short(r.from)} → ${short(r.to)}</button>`
+      `<button type="button" data-i="${i}" aria-pressed="${i === curIdx()}" aria-label="${short(r.from)}から${short(r.to)}まで"><span class="stop">${short(r.from)}</span><span class="stop">${short(r.to)}</span></button>`
     ).join("") + (fixed() ? "" : `<button type="button" class="addr" id="openEditor">＋ 区間を登録</button>`);
     $("sortHint").hidden = fixed() || st.routes.length < 2;
   }
