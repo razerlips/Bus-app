@@ -40,7 +40,11 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .alert{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:8px 12px;font-size:14px;margin:0}
 .label{font-size:12px;color:var(--muted);letter-spacing:.06em;margin:0 0 6px}
 .routes{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch}
-.routes button{white-space:nowrap;flex:none}
+.routes{position:relative;padding-top:4px;padding-block-end:6px}
+.routes button{white-space:nowrap;flex:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.routes.sorting button{transition:transform .15s ease}
+.routes button.lifting{position:relative;z-index:2;transition:none;box-shadow:0 6px 16px rgb(0 0 0 / .25)}
+@media (prefers-reduced-motion:reduce){.routes.sorting button{transition:none}}
 .routes button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
 .routes .addr{border-style:dashed;color:var(--accent)}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
@@ -105,6 +109,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
   <section>
     <p class="label">区間</p>
     <div class="routes" id="routes"></div>
+    <p class="muted" id="sortHint" hidden>区間を長押しして左右に動かすと、並び替えできます</p>
   </section>
 
   <section class="panel" id="editor" hidden>

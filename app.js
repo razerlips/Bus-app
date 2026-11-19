@@ -149,6 +149,7 @@
       `<button type="button" data-i="${i}" aria-pressed="${i === curIdx()}">${short(r.from)} → ${short(r.to)}</button>`
     ).join("") + (fixed() ? "" : `<button type="button" class="addr" id="openEditor">＋ 区間を登録</button>`);
     $("del").hidden = fixed() || !st.routes.length;
+    $("sortHint").hidden = fixed() || st.routes.length < 2;
   }
 
   function renderTrips() {
@@ -201,9 +202,63 @@
 
   $("routes").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
+    if (justDragged) { justDragged = false; return; }
     if (b.id === "openEditor") return openEditor();
     setCur(Number(b.dataset.i)); save(); render();
   });
+  // ---- long-press to reorder (鬼無里線の区間) ----
+  let hold = null, drag = null, justDragged = false;
+  const box = $("routes");
+  const chipsOf = () => [...box.querySelectorAll("button[data-i]")];
+  const contentX = x => x - box.getBoundingClientRect().left + box.scrollLeft;
+  function startDrag(chip, x) {
+    const chips = chipsOf();
+    drag = { from: Number(chip.dataset.i), to: Number(chip.dataset.i), chip, chips,
+      centers: chips.map(c => c.offsetLeft + c.offsetWidth / 2), width: chip.offsetWidth + 6, x0: contentX(x) };
+    box.classList.add("sorting"); chip.classList.add("lifting");
+    chip.style.transform = "scale(1.06)";
+  }
+  function moveDrag(x) {
+    const r = box.getBoundingClientRect();
+    if (x < r.left + 32) box.scrollLeft -= 8; else if (x > r.right - 32) box.scrollLeft += 8;
+    const dx = contentX(x) - drag.x0, c = drag.centers[drag.from] + dx;
+    let to = drag.from;
+    drag.centers.forEach((cc, i) => { if (i > drag.from && c > cc) to = i; if (i < drag.from && c < cc && to === drag.from) to = i; });
+    drag.to = to;
+    drag.chips.forEach((ch, i) => {
+      if (i === drag.from) { ch.style.transform = `translateX(${dx}px) scale(1.06)`; return; }
+      let s = 0;
+      if (drag.from < to && i > drag.from && i <= to) s = -drag.width;
+      if (drag.from > to && i >= to && i < drag.from) s = drag.width;
+      ch.style.transform = s ? `translateX(${s}px)` : "";
+    });
+  }
+  function endDrag(commit) {
+    const d = drag; drag = null; if (!d) return;
+    box.classList.remove("sorting");
+    justDragged = true; setTimeout(() => { justDragged = false; }, 400);
+    if (commit && d.to !== d.from) {
+      const sel = st.routes[st.cur];
+      const [moved] = st.routes.splice(d.from, 1); st.routes.splice(d.to, 0, moved);
+      st.cur = Math.max(0, st.routes.indexOf(sel)); save();
+    }
+    renderRoutes();
+  }
+  box.addEventListener("touchstart", e => {
+    if (fixed() || e.touches.length > 1) return;
+    const chip = e.target.closest("button[data-i]"); if (!chip) return;
+    const t = e.touches[0];
+    hold = { x: t.clientX, y: t.clientY, timer: setTimeout(() => { hold = null; startDrag(chip, t.clientX); }, 450) };
+  }, { passive: true });
+  box.addEventListener("touchmove", e => {
+    const t = e.touches[0];
+    if (drag) { e.preventDefault(); moveDrag(t.clientX); return; }
+    if (hold && Math.hypot(t.clientX - hold.x, t.clientY - hold.y) > 8) { clearTimeout(hold.timer); hold = null; }
+  }, { passive: false });
+  box.addEventListener("touchend", () => { if (hold) { clearTimeout(hold.timer); hold = null; } if (drag) endDrag(true); });
+  box.addEventListener("touchcancel", () => { if (hold) { clearTimeout(hold.timer); hold = null; } endDrag(false); });
+  box.addEventListener("contextmenu", e => { if (!fixed()) e.preventDefault(); });
+
   $("swap").addEventListener("click", () => { const f = $("from").value; $("from").value = $("to").value; $("to").value = f; });
   $("cancel").addEventListener("click", () => { $("editor").hidden = true; });
   $("save").addEventListener("click", () => {
